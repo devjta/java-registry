@@ -32,24 +32,15 @@ import java.io.FileOutputStream;
  *                         reading/writing dword, binary, multi and expand values (these new methods are tested under XP SP2 and
  *                         Vista Ultimate x64 with admin privliges and UCL turned off, so if there are any bugs with other windows
  *                         version please submit it to me - or just to say thank you or to donate ;-))<br>
- *                         All OLD methods are stil here and the start with _
- * @released 05.06.2008
+ *                         All OLD methods are stil here and the start with _<br>
+ * @version 3.1 15.10.2008 extractAnyValue had a bug,when reading out items which goes over more lines (JTA)<br>
+ * @version 3.2 17.10.2008 added caching methods for caching many registry entries + values<br>
+ * @version 3.3 20.10.2008 found major bug in the method extractAnyValue - the method returned and value found with the name, not only
+ *  for the right key
+ * @released 20.10.2008 (internal release)
  *******************************************************************************************************************************/
 final public class Regor
 {
-  /**
-   * the NEW handle to the HKEY_CLASSES_ROOT registry root node
-   */
-  public static final Key HKEY_CLASSES_ROOT = new Key(0x80000000, "HKEY_CLASSES_ROOT");
-  /**
-   * the NEW handle to the HEKY_CURRENT_USER registry root node
-   */
-  public static final Key HKEY_CURRENT_USER = new Key(0x80000001, "HKEY_CURRENT_USER");
-  /**
-   * the NEW handle to the HKEY_LOCAL_MACHINE registry root node
-   */
-  public static final Key HKEY_LOCAL_MACHINE = new Key(0x80000002, "HKEY_LOCAL_MACHINE");
-
   /**
    * the old handle to the HKEY_CLASSES_ROOT registry root node
    */
@@ -63,6 +54,18 @@ final public class Regor
    */
   public static final int _HKEY_LOCAL_MACHINE = 0x80000002;
 
+  /**
+   * the NEW handle to the HKEY_CLASSES_ROOT registry root node
+   */
+  public static final Key HKEY_CLASSES_ROOT = new Key(_HKEY_CLASSES_ROOT, "HKEY_CLASSES_ROOT");
+  /**
+   * the NEW handle to the HEKY_CURRENT_USER registry root node
+   */
+  public static final Key HKEY_CURRENT_USER = new Key(_HKEY_CURRENT_USER, "HKEY_CURRENT_USER");
+  /**
+   * the NEW handle to the HKEY_LOCAL_MACHINE registry root node
+   */
+  public static final Key HKEY_LOCAL_MACHINE = new Key(_HKEY_LOCAL_MACHINE, "HKEY_LOCAL_MACHINE");
 
   public static final int ERROR_SUCCESS = 0;
   public static final int ERROR_FILE_NOT_FOUND = 2;
@@ -153,6 +156,23 @@ final public class Regor
    */
   private static final String EXPAND_KEY = "hex(2):";
 
+
+  /**
+   * Time (milliseconds) for waiting for a file to grow (needed for caching and reading dword, binary, multi and expand values)
+   */
+  public static int WAIT_FOR_FILE = 250;
+
+
+  /**
+   * List for cached registry entires
+   */
+  private ArrayList caches;
+
+  /**
+   * If you want to use cached entries. The method readBinary, readDword, readExpand and readMulti just use caches (not readValue)
+   */
+  private boolean useCache = false;
+
   /******************************************************************************************************************************
    * Constructor to handle with windows registry
    * @throws RegistryErrorException throws an registryerrorException when its not able to get a handle to the registry methods
@@ -230,37 +250,71 @@ final public class Regor
    *********************************************************************************************************************************/
   private String extractAnyValue(String path, String valueName) throws RegistryErrorException
   {
+    try{
+      String tmp = getCachedValue(path, valueName);
+      if (tmp != null)
+        return tmp;
+      else if (useCache)
+        System.out.println("CACHED KEY: " + path + " AND VALUE NOT FOUND: " + valueName);
+    }
+    catch(NoEntryException nee) //has not this children
+    {
+      if(isCachingActive()) //only if caching is active
+        return null;
+    }
     StringBuffer strRet = new StringBuffer(); //stringbuffer for appending, if an entry has multiplie lines
     try{
       File f = File.createTempFile("regorexp",".jta"); //creates tmp File for storing the registry key
       //ATTENTION!! THESE COULD BE A DEADLOCK BECAUSE I WAITFOR THE END OF PROCESS HERE
       Runtime.getRuntime().exec("regedit /e " + f.getAbsolutePath() + " \"" + path + "\"").waitFor(); //<-- WAITING FOR END OF PROCESS
+      _waitForFile(f); //wait until the file size is not increasing anymore
       BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(f)));
       String line = "";
-      boolean lineFound = false;
+      boolean lineFound = false, keyFound = false;
       while ( ( line = br.readLine() ) != null)
       {
         line = line.replaceAll(NULL_STRING,"");
-
-        if(line.startsWith("\"" + valueName) && line.indexOf("=") != -1 || lineFound)
+        if(line.length() > 0)
         {
-          if(lineFound) //when line found, just append
+          if (keyFound ||  (line.startsWith("[") && line.endsWith("]")) )
           {
-            if(line.indexOf("=") != -1) //if = is found, this is a new item so abort
+            if(line.startsWith("[") && line.endsWith("]"))
             {
-              break;
+              if(keyFound) //abort if new key starts
+                break;
+              else{
+                if(line.equals("[" + path + "]")) //if the line is the same then start searching for your value
+                  keyFound = true;
+              }
             }
-            //and append the line, if its for the same item
-            strRet.append(line.trim().replaceAll("\\\\","")); //eliminate every \
-          }
-          else
-          {
-            line = line.substring(line.indexOf("=") + 1);
-            strRet.append(line.replaceAll("\\\\","")); //eliminate every \ also if there is none
-            lineFound = true;
-            if (line.indexOf("\\") == -1) //if no \\ is found, there is no new line in the string, so abort
+            else if(keyFound && ( lineFound || line.startsWith("\"" + valueName) && line.indexOf("=") != -1  ))
             {
-              break; //abort if no \ is found
+              if(lineFound) //when line found, just append
+              {
+                if(line.length() > 0)
+                {
+                  if (line.indexOf("=") != -1) //if = is found, this is a new item so abort
+                  {
+                    break;
+                  }
+                  //and append the line, if its for the same item
+                  strRet.append(line.trim().replaceAll("\\\\", "")); //eliminate every \
+                  if(!line.endsWith("\\")) //if line doesnt ends with \ the registry entry has no more lines
+                  {
+                    break;
+                  }
+                }
+              }
+              else
+              {
+                line = line.substring(line.indexOf("=") + 1);
+                strRet.append(line.replaceAll("\\\\","")); //eliminate every \ also if there is none
+                lineFound = true;
+                if (line.indexOf("\\") == -1) //if no \\ is found, there is no new line in the string, so abort
+                {
+                  break; //abort if no \ is found
+                }
+              }
             }
           }
         }
@@ -1177,7 +1231,8 @@ final public class Regor
   /**********************************************************************************************************************************
    * Method converts a hex given String (separated by comma) into a string
    * @param hexCommaString String
-   * @param deleteNullSigns boolean if you want to remove every 0 sign
+   * @param deleteNullSigns boolean if you want to remove every 0 sign (delete null signs is needed for multi and expand entries,
+   * but not for binary
    * @return String
    *********************************************************************************************************************************/
   public static String parseHexString(String hexCommaString, boolean deleteNullSigns)
@@ -1202,7 +1257,7 @@ final public class Regor
    * Method converts a plain String into a hex comma separated String with 0´s between
    * @param plain String
    * @param appendNullSigns boolean if you want to add null signs (needed for multi and expand entries, but not for binary entry)
-   * @return String
+   * @return String the converted string
    **********************************************************************************************************************************/
   public static String convertStringToHexComma(String plain, boolean appendNullSigns)
   {
@@ -1304,6 +1359,345 @@ final public class Regor
     }
   }
 
+  ///// caching methods starting here ////
+
+  /**********************************************************************************************************************************
+   * Method caches a complete key + 1 subkey
+   * @param key Key the registry key which should be cached + subchildren
+   * @throws RegistryErrorException
+   *********************************************************************************************************************************/
+  public void cacheKeys(Key key) throws RegistryErrorException
+  {
+    cacheKeys(key, 1);
+  }
+
+
+  /**********************************************************************************************************************************
+   * Method caches a complete key tree (so the key + subchildren)
+   * @param key Key the registry key which should be cached + subchildren
+   * @param maximumChildren int amount of the subchildren which should be cached (attention, this may create a java.lang.OutofMemory
+   * Error if you have not enoguth memory use -Xmx512M or sth)
+   * @throws RegistryErrorException
+   *********************************************************************************************************************************/
+  public void cacheKeys(Key key, int maximumChildren) throws RegistryErrorException
+  {
+    if(key == null)
+      throw new NullPointerException("Registry key cannot be null");
+    cacheKeys(key.getPath(), maximumChildren);
+  }
+
+  /**********************************************************************************************************************************
+   * Method caches a complete key tree (so the key + subchildren)
+   * @param key String the registry key which should be cached + subchildren
+   * @param maximumChildren int amount of the subchildren which should be cached (attention, this may create a java.lang.OutofMemory
+   * Error if you have not enoguth memory use -Xmx512M or sth)
+   * @throws RegistryErrorException
+   *********************************************************************************************************************************/
+  private void cacheKeys(String key, int maximumChildren) throws RegistryErrorException
+  {
+    StringBuffer strRet = new StringBuffer(); //stringbuffer for appending, if an entry has multiplie lines
+    try{
+      File f = File.createTempFile("regorexp",".jta"); //creates tmp File for storing the registry key
+//      long stamp1 = System.currentTimeMillis();
+      //ATTENTION!! THESE COULD BE A DEADLOCK BECAUSE I WAITFOR THE END OF PROCESS HERE
+      Runtime.getRuntime().exec("regedit /e " + f.getAbsolutePath() + " \"" + key + "\"").waitFor(); //<-- WAITING FOR END OF PROCESS
+      _waitForFile(f); //wait until the file size is not increasing anymore
+//      System.out.println(">>> NEEDED: " + (System.currentTimeMillis() - stamp1) + " " + f.getAbsolutePath());
+      BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(f)));
+      String line = "";
+      CachedEntry entry = new CachedEntry(), currentEntry = null;
+      CachedValue currentValue = null;
+      entry.setKey(key);
+      while ( ( line = br.readLine() ) != null)
+      {
+        line = line.replaceAll(NULL_STRING,""); //remove illegale signs
+        if(line != null && line.length() > 0)
+        {
+          if(line.startsWith("[") && line.endsWith("]")) //
+          {
+            if(currentEntry != null) //if there was a key
+            {
+              Object tmp[] = entry.getSub(currentEntry.getKey());
+              if(tmp != null)
+              {
+                //just append the data if the maximumchildren is not higher as given
+                if ( ( (Integer) tmp[1]).intValue() < maximumChildren)
+                  ((CachedEntry)tmp[0]).appendChildren(currentEntry);
+              }
+              currentEntry = null;
+            }
+            String currentKey = line.substring(1, line.length() - 1); //gets the current key
+            //if not null and bigger than 0 and if is not the main key
+            if(currentKey != null  && currentKey.length() > 0)
+            {
+              //when it is the main key, then you should store it settings at the main key
+              if (currentKey.equals(entry.getKey()))
+                currentEntry = entry;
+              else
+              {
+                currentEntry = new CachedEntry();
+                currentEntry.setKey(currentKey);
+              }
+            }
+          }
+          //if currentEntry is opened and either equals is in the line or it is more than one line
+          else if(currentEntry != null && (line.indexOf("=") != -1 || currentValue != null))
+          {
+            if(currentValue != null) //when line found, just append
+            {
+              if(line.length() > 0)
+              {
+                if (line.indexOf("=") != -1) //if = is found, this is a new item so abort
+                {
+                  currentValue.setData(strRet.toString());
+//                  currentValue.setData(parseData(strRet.toString()));
+                  strRet.delete(0, strRet.length());
+                  currentEntry.appendEntry(currentValue);
+                  currentValue = null;
+                }
+                else               //and append the line, if its for the same item
+                {
+                  line = line.trim();
+                  if(line.endsWith("\\"))
+                    strRet.append(line.substring(0, line.length() - 1));
+                  else
+                  {
+                    strRet.append(line.trim());
+//                  }
+//                  if (!line.endsWith("\\")) //if line doesnt ends with \ the registry entry has no more lines
+//                  {
+                    currentValue.setData(strRet.toString());
+//                    currentValue.setData(parseData(strRet.toString()));
+                    strRet.delete(0, strRet.length());
+                    currentEntry.appendEntry(currentValue);
+                    currentValue = null;
+                  }
+                }
+              }
+            }
+            else
+            {
+              String currentName = line.substring(0,line.indexOf("="));
+              //default name
+              if(currentName.equals("@"))
+                currentName = "";
+              currentValue = new CachedValue();
+              currentValue.setName(currentName.replaceAll("\"",""));
+              line = line.substring(line.indexOf("=") + 1);
+              if(line.endsWith("\\"))
+                strRet.append(line.substring(0, line.length() - 1));
+              else
+              {
+                strRet.append(line);
+//              }
+//              if (line.indexOf("\\") == -1) //if no \\ is found, there is no new line in the string, so abort
+//              {
+                currentValue.setData(strRet.toString());
+//                currentValue.setData(parseData(strRet.toString()));
+                strRet.delete(0, strRet.length());
+                currentEntry.appendEntry(currentValue);
+                currentValue = null;
+              }
+            }
+          }
+        }
+      }
+      if(currentEntry != null) //if there was a key
+      {
+        Object tmp[] = entry.getSub(currentEntry.getKey());
+        if(tmp != null)
+        {
+          //just append the data if the maximumchildren is not higher as given
+          if ( ( (Integer) tmp[1]).intValue() < maximumChildren)
+            ( (CachedEntry) tmp[0]).appendChildren(currentEntry);
+        }
+      }
+      br.close(); //close reader, so that you can delete the file
+      if(!f.delete()) //if delete has no success
+        f.deleteOnExit(); //mark it, for delete on exit
+      if(caches == null)
+        caches = new ArrayList();
+      caches.add(entry);
+    }
+    catch(Exception ex)
+    {
+//      ex.printStackTrace(System.out);
+      System.err.println(ex.getLocalizedMessage());
+      throw new RegistryErrorException(ex.getLocalizedMessage());
+    }
+  }
+
+  /***********************************************************************************************************************************
+   * Enables the caching method for dword, expand, multi and binary for the cacheKeys method and then for reading it
+   * @param aValue boolean true or false
+   **********************************************************************************************************************************/
+  public void setCaching(boolean aValue)
+  {
+    if(useCache != aValue)
+      useCache = aValue;
+  }
+
+  /***********************************************************************************************************************************
+   * Returns if the caching for dword, expand, multi and binary is enabled (you have to use cacheKeys method)
+   * @return boolean true or false (default = false)
+   **********************************************************************************************************************************/
+  public boolean isCachingActive()
+  {
+    return useCache;
+  }
+
+  /***********************************************************************************************************************************
+   * Method returns all cached Keys
+   * @return List a list of string of the cached key names
+   **********************************************************************************************************************************/
+  public List getCachingKeys()
+  {
+    List ret = null;
+    if(isCachingActive() && caches != null && caches.size() > 0)
+    {
+      ret = new ArrayList();
+      for(int x = 0; x != caches.size(); x++)
+      {
+        CachedEntry entry = (CachedEntry) caches.get(x);
+        if(entry != null)
+          ret.add(entry.getKey());
+      }
+    }
+    return ret;
+  }
+
+  /**********************************************************************************************************************************
+   * Method refreshes the cached entries
+   * @todo implement 100% funtionality - i dont know the deepth search of the subkinds
+   * @throws RegistryErrorException
+   *********************************************************************************************************************************/
+  public void refreshCaches() throws RegistryErrorException
+  {
+    if(isCachingActive())
+    {
+      if(caches != null && caches.size() > 0)
+      {
+        List tmpCache = (List) caches.clone();
+        caches = new ArrayList();
+        for (int x = 0; tmpCache != null && x != tmpCache.size(); x++)
+        {
+          CachedEntry entry = (CachedEntry) tmpCache.get(x);
+          if (entry != null)
+          {
+            String key = entry.getKey();
+            cacheKeys(key, 1);
+          }
+        }
+
+      }
+    }
+  }
+
+  /**********************************************************************************************************************************
+   * Method deletes all caching values
+   *********************************************************************************************************************************/
+  public void deleteCaches()
+  {
+    if(isCachingActive())
+    {
+      for (int x = 0; caches != null && x != caches.size(); x++)
+      {
+        CachedEntry entry = (CachedEntry) caches.get(x);
+        if (entry != null)
+        {
+          List children = entry.getChildren();
+          if (children != null)
+            children.clear();
+          List entries = entry.getEntries();
+          if (entries != null)
+            entries.clear();
+        }
+      }
+      caches.clear();
+      caches = null;
+    }
+  }
+
+  /***********************************************************************************************************************************
+   * Method searches for the key in the cache entry - just for private usage
+   * @param key String
+   * @param name String
+   * @return String
+   * @throws NoEntryException throws this exception if there is no such entry - returns null if it is not cached or caching is disabled
+   **********************************************************************************************************************************/
+  private String getCachedValue(String key, String name) throws NoEntryException
+  {
+    if(isCachingActive())
+    {
+      for(int x = 0; caches != null && x != caches.size(); x++)
+      {
+        CachedEntry entry = (CachedEntry) caches.get(x);
+        CachedEntry child = entry.findSub(key);
+        if(child != null)
+        {
+          List list = child.getEntries();
+          if(list == null)
+            throw new NoEntryException(key + " @ " + name + " not found in registry");
+          for(int y = 0; list != null && y != list.size(); y++)
+          {
+            CachedValue val = (CachedValue)list.get(y);
+            if(val != null)
+            {
+              if(val.getName().equals(name))
+                return val.getData();
+            }
+          }
+          if(list.size() > 0) //when the list has entries and the name is not found, then there is no such entry
+            throw new NoEntryException(key + " @ " + name + " not found in registry");
+        }
+      }
+    }
+    return null;
+  }
+
+  /**********************************************************************************************************************************
+   * Method parses the data for caching - not used anymore
+   * @param data String
+   * @return String
+   *********************************************************************************************************************************/
+  private static String parseData(String data)
+  {
+    if(data == null || data.length() == 0)
+      return data;
+    if(data.startsWith(BINARY_KEY))
+      return data.substring(4);
+//      return parseHexString(data.substring(4), false);
+    else if(data.startsWith(DWORD_KEY))
+      return data.substring(6);
+//      return parseHexString(data.substring(6), false);
+    else if(data.startsWith(MULTI_KEY))
+      return data.substring(7);
+//      return parseHexString(data.substring(7), true);
+    else if(data.startsWith(EXPAND_KEY))
+      return data.substring(7);
+//      return parseHexString(data.substring(7), true);
+    else if(data.startsWith("\""))
+      return data.replaceAll("\"", "");
+    return data;
+  }
+
+  /**********************************************************************************************************************************
+   * Method looks if the filesize becomes bigger after waiting some ms (which can be defined at WAIT_FOR_FILE)
+   * @param file File
+   *********************************************************************************************************************************/
+  private static void _waitForFile(File file)
+  {
+    try{
+      long size = file.length();
+      Thread.currentThread().sleep(WAIT_FOR_FILE);
+      if(size != file.length())
+        _waitForFile(file);
+    }
+    catch(Exception ex)
+    {
+      System.err.println("ERROR WAITING FOR FILE: " + file);
+    }
+  }
 
   /******************************************************************************************************************************
    * main for testing and some examples are stored here
@@ -1313,6 +1707,21 @@ final public class Regor
   public static void main(String[] args) throws Exception
   {
     Regor regor = new Regor();
+    Key _key = regor.openKey(HKEY_LOCAL_MACHINE, "SYSTEM\\ControlSet001\\Services");
+//    regor.setCaching(true);
+//    Key _key = regor.openKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\debis");
+    regor.cacheKeys(_key, 2);
+    Key __key = regor.openKey(_key, "xmlprov\\Parameters");
+    System.out.println("KEY:: " + __key);
+//    System.out.println(">> " + regor.readExpand(__key, "ServiceDll"));
+//    System.out.println(">>> " + Regor.parseHexString(regor.readExpand(__key, "ServiceDll"), true));
+    System.out.println(">>>> " + regor.readMulti(_key,"DependOnService"));
+    System.out.println(">>> " + Regor.parseHexString(regor.readMulti(_key, "DependOnService"), true));
+    regor.closeKey(__key);
+    regor.closeKey(_key);
+    if(true)
+      return;
+
     if(false) //testing the new methods
     {
       Key key = regor.openKey(HKEY_LOCAL_MACHINE, "Software\\AVS3");
@@ -1390,6 +1799,16 @@ final public class Regor
         System.out.println(x + " == " + l.get(x));
       regor.closeKey(key2);
       regor.closeKey(key);
+    }
+  }
+
+  //
+  //Exception is used when searching with cached values and the cached values has no entries
+  private static class NoEntryException extends Exception
+  {
+    public NoEntryException(String str)
+    {
+      super(str);
     }
   }
 }
