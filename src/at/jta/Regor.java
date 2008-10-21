@@ -434,6 +434,7 @@ final public class Regor
    * @param key Key the parent key handle obtained by openKey
    * @param valueName String the multi value name
    * @return String the HEXADECIMAL values separated by comma (use <code>String parseHexString(String)</code> to convert it
+   * the line seperator is also a hex null! You have to parse it out
    * @throws RegistryErrorException
    *********************************************************************************************************************************/
   public String readMulti(Key key, String valueName) throws RegistryErrorException
@@ -1231,6 +1232,7 @@ final public class Regor
 
   /**********************************************************************************************************************************
    * Method converts a hex given String (separated by comma) into a string
+   * For Multi entries, every entry ends with HEX 0 so you can split the lines
    * @param hexCommaString String
    * @param deleteNullSigns boolean if you want to remove every 0 sign (delete null signs is needed for multi and expand entries,
    * but not for binary
@@ -1248,9 +1250,12 @@ final public class Regor
     for(int x = 0; items != null && x != items.length; x++)
     {
       char sign = (char)Integer.parseInt(items[x], 16);
-      if(!deleteNullSigns || (deleteNullSigns && x % 2 == 1 & sign != 0)) //dont delete every 0, just every 2nd step
+      if(!deleteNullSigns || (deleteNullSigns && sign != 0) || x % 2 == 0) //dont delete every 0, just every 2nd step
         strRet.append(sign);
     }
+    //if i should delete 0 sign and the last sign is a hex 0 remove it!
+    if(deleteNullSigns && strRet.charAt(strRet.length() - 1) == 0)
+      strRet.deleteCharAt(strRet.length() - 1);
     return strRet.toString();
   }
 
@@ -1712,12 +1717,15 @@ final public class Regor
 //    regor.setCaching(true);
 //    Key _key = regor.openKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\debis");
     regor.cacheKeys(_key, 2);
-    Key __key = regor.openKey(_key, "xmlprov\\Parameters");
+    Key __key = regor.openKey(_key, "xmlprov");
     System.out.println("KEY:: " + __key);
 //    System.out.println(">> " + regor.readExpand(__key, "ServiceDll"));
 //    System.out.println(">>> " + Regor.parseHexString(regor.readExpand(__key, "ServiceDll"), true));
-    System.out.println(">>>> " + regor.readMulti(_key,"DependOnService"));
-    System.out.println(">>> " + Regor.parseHexString(regor.readMulti(_key, "DependOnService"), true));
+    System.out.println(">>>> " + regor.readMulti(__key,"DependOnService"));
+    System.out.println(">>> " + Regor.parseHexString(regor.readMulti(__key, "DependOnService"), true));
+    System.out.println(">>>> " + regor.readExpand(__key,"ImagePath"));
+    System.out.println(">>> " + Regor.parseHexString(regor.readExpand(__key, "ImagePath"), true));
+
     regor.closeKey(__key);
     regor.closeKey(_key);
     if(true)
