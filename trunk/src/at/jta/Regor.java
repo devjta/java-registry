@@ -36,8 +36,9 @@ import java.io.FileOutputStream;
  * @version 3.1 15.10.2008 extractAnyValue had a bug,when reading out items which goes over more lines (JTA)<br>
  * @version 3.2 17.10.2008 added caching methods for caching many registry entries + values<br>
  * @version 3.3 20.10.2008 found major bug in the method extractAnyValue - the method returned and value found with the name, not only
- *  for the right key
- * @released 20.10.2008 (internal release)
+ *  for the right key<br>
+ * @version 3.4 21.10.2008 bug in the parseHexString method when you want to replace the 0 signs! It removed every 0 sign
+ * @released 21.10.2008 (internal release)
  *******************************************************************************************************************************/
 final public class Regor
 {
@@ -1247,7 +1248,7 @@ final public class Regor
     for(int x = 0; items != null && x != items.length; x++)
     {
       char sign = (char)Integer.parseInt(items[x], 16);
-      if(!deleteNullSigns || (deleteNullSigns && sign != 0))
+      if(!deleteNullSigns || (deleteNullSigns && x % 2 == 1 & sign != 0)) //dont delete every 0, just every 2nd step
         strRet.append(sign);
     }
     return strRet.toString();
