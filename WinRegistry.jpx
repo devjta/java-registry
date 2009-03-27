@@ -56,7 +56,7 @@
     <property category="nodeJavadoc" name="displayAllOutput" value="0"/>
     <property category="nodeJavadoc" name="includeTestPath" value="0"/>
   </node>
-  <node name="WinRegistryV3" type="Archive">
+  <node name="WinRegistryV4" type="Archive">
     <property category="archiving" name="contentRules.1" value="I:**/*.*"/>
     <property category="archiving" name="obfuscator" value="RetroGuardv231"/>
     <property category="archiving" name="targetPath" value="WinRegistry.jar"/>
