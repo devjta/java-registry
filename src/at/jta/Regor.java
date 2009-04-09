@@ -39,9 +39,12 @@ import java.io.FileOutputStream;
  *  for the right key<br>
  * @version 3.4 21.10.2008 bug in the parseHexString method when you want to replace the 0 signs! It removed every 0 sign
  * @released 21.10.2008 (internal release)
- * @version 4.0preBeta 27.03.2009 From a discussion at the java-forum.org board, a member told me, that there is also a native
+ * @version 4.0 RC1 09.04.2009 From a discussion at the java-forum.org board, a member told me, that there is also a native
  *                     command called "reg.exe" and vista doesnt need admin privileges when you run it! So the version checks if
  *                     reg.exe is here! If not take regedit.exe
+ *                     reg.exe is faster, not so much memory consuming (while parsing cached keys) and under vista UAC is not such
+ *                     a big problem as with regedit.exe! The best result is, that you dont need to convert the data anymore
+ *                     (if you stil do it, because upgrading from older version, it doesnt matter - so the result will be the same)
  *******************************************************************************************************************************/
 final public class Regor
 {
@@ -221,6 +224,8 @@ final public class Regor
   {
     if(nativeHandler == null)
       throw new RegistryErrorException("NativeHandler is not initalized!");
+    if(nativeHandler instanceof RegHandler)
+      System.err.println("ATTENTITION!! WRONG METHOD TO STORE BINARY ENTRIES!! PLEASE USE savePlainBinary!");
     nativeHandler.saveAnyValue(key.getPath(), valueName, BINARY_KEY, hexCommaData);
   }
 
@@ -400,6 +405,8 @@ final public class Regor
   {
     if(nativeHandler == null)
       throw new RegistryErrorException("NativeHandler is not initalized!");
+    if(nativeHandler instanceof RegHandler)
+      System.err.println("ATTENTITION!! WRONG METHOD TO STORE EXPAND ENTRIES!! PLEASE USE savePlainExpand!");
     nativeHandler.saveAnyValue(key.getPath(), valueName, EXPAND_KEY, hexCommaZeroData);
   }
 
@@ -948,7 +955,6 @@ final public class Regor
     return _delKey(key.getKey(), subkey);
   }
 
-
   /******************************************************************************************************************************
    * deletes a key/subkey from the registry
    * @param key the parent key obtained by openKey
@@ -1000,7 +1006,6 @@ final public class Regor
     else
       return new Key(key, tmpKey, subkey);
   }
-
 
   /******************************************************************************************************************************
    * Create new key/subkey in the registry with the specified name
@@ -1199,10 +1204,27 @@ final public class Regor
     if(hexCommaString == null || hexCommaString.trim().length() == 0)
       return hexCommaString;
     String items[] = hexCommaString.split(",");
+    StringBuffer strRet = new StringBuffer();
     //if no comma was found, return the given string
     if(items == null || items.length == 0)
+    {
       return hexCommaString;
-    StringBuffer strRet = new StringBuffer();
+    }
+    else if(items.length == 1)
+    {
+      //if no space in it, then it is maybe hex string without comma´s
+      if (hexCommaString.indexOf(" ") == -1)
+      {
+        try{
+          for(int x = 0; x < hexCommaString.length(); x+=2)
+          {
+            strRet.append((char)Integer.parseInt(hexCommaString.substring(x, x + 2), 16));
+          }
+          return strRet.toString();
+        }
+        catch(Exception ex) {}
+      }
+    }
     try{
       for(int x = 0; items != null && x != items.length; x++)
       {
@@ -1268,7 +1290,6 @@ final public class Regor
     try
     {
       clazz = Class.forName("java.util.prefs.WindowsPreferences"); //you cannot access the class directly, cause its private
-
       Method ms[] = clazz.getDeclaredMethods();
       if(ms == null)
         throw new RegistryErrorException("Cannot access java.util.prefs.WindowsPreferences class!");
@@ -1358,8 +1379,6 @@ final public class Regor
     {
       //no check for regedit.exe because of vista uac control
       nativeHandler = new RegeditHandler();
-//      Runtime.getRuntime().exec("regedit.exe");
-
     }
   }
 
@@ -1582,10 +1601,12 @@ final public class Regor
 //    Key _key = regor.openKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\debis");
 //    regor.cacheKeys(_key, 2);
     Key __key = regor.openKey(_key, "xmlprov");
-
+    regor.setCaching(true);
+    regor.cacheKeys(_key);
     System.out.println("KEY:: " + __key);
 //    System.out.println(">> " + regor.readExpand(__key, "ServiceDll"));
 //    System.out.println(">>> " + Regor.parseHexString(regor.readExpand(__key, "ServiceDll"), true));
+    regor.savePlainMulti(__key, "multi", "WURSTSEMAL");
     System.out.println(">>>>MULTI " + regor.readMulti(__key,"multi"));
     System.out.println(">>>PARSEMULTI " + Regor.parseHexString(regor.readMulti(__key, "multi"), true));
     System.out.println(">>>>EXPAND " + regor.readExpand(__key,"expand"));
@@ -1597,6 +1618,7 @@ final public class Regor
     regor.savePlainMulti(__key, "multi2", "%SystemRoot%\\System32\\svchost.exe -k netsvcs");
     regor.savePlainExpand(__key, "expand2", "%SystemRoot%\\System32\\svchost.exe -k netsvcs");
     regor.savePlainBinary(__key, "bin2", "%SystemRoot%\\System32\\svchost.exe -k netsvcs");
+    regor.cacheKeys(__key, 2);
     regor.closeKey(__key);
     regor.closeKey(_key);
     if(true)
@@ -1762,7 +1784,10 @@ final public class Regor
       try{
         String tmp = getCachedValue(path, valueName);
         if (tmp != null)
+        {
+//          System.out.println("FOUND CACHED!");
           return tmp;
+        }
         else if (useCache)
           System.out.println("CACHED KEY: " + path + " AND VALUE NOT FOUND: " + valueName);
       }
@@ -1772,12 +1797,14 @@ final public class Regor
           return null;
       }
       StringBuffer strRet = new StringBuffer(); //stringbuffer for appending, if an entry has multiplie lines
+      File f = null;
+      BufferedReader br = null;
       try{
-        File f = File.createTempFile("regorexp",".jta"); //creates tmp File for storing the registry key
+        f = File.createTempFile("regorexp",".jta"); //creates tmp File for storing the registry key
         //ATTENTION!! THESE COULD BE A DEADLOCK BECAUSE I WAITFOR THE END OF PROCESS HERE
         Runtime.getRuntime().exec("regedit /e " + f.getAbsolutePath() + " \"" + path + "\"").waitFor(); //<-- WAITING FOR END OF PROCESS
         _waitForFile(f); //wait until the file size is not increasing anymore
-        BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(f)));
+        br = new BufferedReader(new InputStreamReader(new FileInputStream(f)));
         String line = "";
         boolean lineFound = false, keyFound = false;
         while ( ( line = br.readLine() ) != null)
@@ -1837,6 +1864,16 @@ final public class Regor
         System.err.println(ex.getLocalizedMessage());
 //      ex.printStackTrace(System.out);
         throw new RegistryErrorException(ex.getLocalizedMessage());
+      }
+      finally{
+        try{
+          if(br != null)
+            br.close(); //close reader, so that you can delete the file
+        }
+        catch(Exception ex){}
+        if(f != null)
+          if(!f.delete()) //if delete has no success
+            f.deleteOnExit(); //mark it, for delete on exit
       }
       //if the buffer length is zero, return null
       return strRet.length() == 0  ? null : strRet.toString();
@@ -2000,41 +2037,21 @@ final public class Regor
     public boolean saveAnyValue(String path, String valueName, String type, String data) throws RegistryErrorException
     {
       try{
-        boolean replacePercent = false;
         if(type.equals(BINARY_KEY))
           type = "REG_BINARY";
         else if(type.equals(DWORD_KEY))
           type = "REG_DWORD";
         else if(type.equals(MULTI_KEY))
-        {
           type = "REG_MULTI_SZ";
-          replacePercent = true;
-        }
         else if(type.equals(EXPAND_KEY))
-        {
           type = "REG_EXPAND_SZ";
-          replacePercent = true;
-        }
-        //NOT NEEDED!!!!
-        //if % i need to create a bat file otherwhise the % would be translated with the environment variable
-        if(false && replacePercent && data.indexOf("%") != -1)
-        {
-          File f = File.createTempFile("jtaregorimp",".bat"); //creates tmp File for storing the registry key
-          BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f)));
-          bw.write("reg add \"" + path + "\" /v \"" + valueName + "\" /t " + type + " /d \"" + data.replaceAll("%","%%") + "\" /f");
-          bw.flush();
-          bw.close();
-          Runtime.getRuntime().exec(f.getAbsolutePath()).waitFor();
-          if(!f.delete())
-            f.deleteOnExit();
-        }
-        else //if not consuming the cmd /c variable, it stores it 1:1
-          Runtime.getRuntime().exec("reg add \"" + path + "\" /v \"" + valueName + "\" /t " + type + " /d \"" + data + "\" /f");
-//          Runtime.getRuntime().exec("cmd /c \"reg add \"" + path + "\" /v \"" + valueName + "\" /t " + type + " /d \"" + data + "\" /f\"");
+        Runtime.getRuntime().exec("reg add \"" + path + "\" /v \"" + valueName + "\" /t " + type + " /d \"" + data + "\" /f");
       }
       catch(Exception ex)
       {
-        ex.printStackTrace(System.out);
+//        ex.printStackTrace(System.out);
+        System.err.println(ex.getLocalizedMessage());
+        throw new RegistryErrorException(ex.getLocalizedMessage());
       }
       return true;
     }
@@ -2052,7 +2069,10 @@ final public class Regor
       try{
         String tmp = getCachedValue(path, valueName);
         if (tmp != null)
+        {
+//          System.out.println("FOUND CACHED!");
           return tmp;
+        }
         else if (useCache)
           System.out.println("CACHED KEY: " + path + " AND VALUE NOT FOUND: " + valueName);
       }
@@ -2062,12 +2082,14 @@ final public class Regor
           return null;
       }
       StringBuffer strRet = new StringBuffer(); //stringbuffer for appending, if an entry has multiplie lines
+      BufferedReader br = null;
+      File f = null;
       try{
-        File f = File.createTempFile("regorexp",".jta"); //creates tmp File for storing the registry key
+        f = File.createTempFile("regorexp",".jta"); //creates tmp File for storing the registry key
         //ATTENTION!! THESE COULD BE A DEADLOCK BECAUSE I WAITFOR THE END OF PROCESS HERE
         Runtime.getRuntime().exec("cmd /c \"reg query \"" + path + "\" /v \"" + valueName + "\" > " + f.getAbsolutePath() + " 2>&1\"").waitFor(); //<-- WAITING FOR END OF PROCESS
         _waitForFile(f); //wait until the file size is not increasing anymore
-        BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(f)));
+        br = new BufferedReader(new InputStreamReader(new FileInputStream(f)));
         String line = "";
         boolean lineFound = false;
         while ( ( line = br.readLine() ) != null)
@@ -2078,32 +2100,43 @@ final public class Regor
           }
           else if(lineFound && line.trim().length() > 0)
           {
-            String items[] = line.trim().split("\\s", 3); //split it for 2 items
-            //[0] = valueName
-            //[1] = type
-            //[2] = entry
-            if(items[0].trim().equals(valueName))//just if its the name
+            int regIndex = line.indexOf("\tREG_");
+            String foundValueName = line.substring(4, regIndex);
+            if(foundValueName.equals(valueName))
             {
-              if(items[1].equals("REG_MULTI_SZ"))
+              line = line.substring(regIndex + 1);
+              String items[] = line.split("\\s", 2);
+              //[0] = type
+              //[1] = entry
+              if (items[0].equals("REG_MULTI_SZ"))
                 strRet.append(MULTI_KEY); //add this for older version
-              else if(items[1].equals("REG_EXPAND_SZ"))
+              else if (items[0].equals("REG_EXPAND_SZ"))
                 strRet.append(EXPAND_KEY);
-              else if(items[1].equals("REG_DWORD"))
+              else if (items[0].equals("REG_DWORD"))
                 strRet.append(DWORD_KEY);
-              else if(items[1].equals("REG_BINARY"))
+              else if (items[0].equals("REG_BINARY"))
                 strRet.append(BINARY_KEY);
-              strRet.append(items[2]);
+              strRet.append(items[1]);
               break;
             }
           }
         }
-        br.close(); //close reader, so that you can delete the file
-        if(!f.delete()) //if delete has no success
-          f.deleteOnExit(); //mark it, for delete on exit
       }
       catch(Exception ex)
       {
-        ex.printStackTrace(System.out);
+//        ex.printStackTrace(System.out);
+        System.err.println(ex.getLocalizedMessage());
+        throw new RegistryErrorException(ex.getLocalizedMessage());
+      }
+      finally{
+        try{
+          if(br != null)
+            br.close(); //close reader, so that you can delete the file
+        }
+        catch(Exception ex){}
+        if(f != null)
+          if(!f.delete()) //if delete has no success
+            f.deleteOnExit(); //mark it, for delete on exit
       }
       return strRet.toString();
     }
@@ -2117,6 +2150,108 @@ final public class Regor
      *********************************************************************************************************************************/
     public void cacheKeys(String key, int maximumChildren) throws RegistryErrorException
     {
+      File f = null;
+      BufferedReader br = null;
+      try{
+        f = File.createTempFile("regorexp",".jta"); //creates tmp File for storing the registry key
+        //ATTENTION!! THESE COULD BE A DEADLOCK BECAUSE I WAITFOR THE END OF PROCESS HERE
+        Runtime.getRuntime().exec("cmd /c \"reg query \"" + key + "\" /s > " + f.getAbsolutePath() + " 2>&1\"").waitFor(); //<-- WAITING FOR END OF PROCESS
+        _waitForFile(f); //wait until the file size is not increasing anymore
+        br = new BufferedReader(new InputStreamReader(new FileInputStream(f)));
+        String line = "";
+        CachedEntry entry = new CachedEntry(), currentEntry = null;
+        String currentKey = null;
+        entry.setKey(key);
+        while ( ( line = br.readLine() ) != null)
+        {
+          if(line.trim().length() > 0) //if found and not empty line
+          {
+            if(line.startsWith("HKEY_")) //if starts with hkey its an entry name
+            {
+              if(currentEntry != null)
+              {
+                Object tmp[] = entry.getSub(currentEntry.getKey());
+                if(tmp != null)
+                {
+                  //just append the data if the maximumchildren is not higher as given
+                  if ( ( (Integer) tmp[1]).intValue() < maximumChildren)
+                    ((CachedEntry)tmp[0]).appendChildren(currentEntry);
+                }
+              }
+              currentEntry = null;
+              currentKey = line; //its the current Key
+              if(currentKey != null  && currentKey.length() > 0)
+              {
+                //when it is the main key, then you should store it settings at the main key
+                if (currentKey.equals(entry.getKey()))
+                  currentEntry = entry;
+                else
+                {
+                  currentEntry = new CachedEntry();
+                  currentEntry.setKey(currentKey);
+                }
+              }
+            }
+            //if currentEntry is opened
+            else if(currentEntry != null && !line.startsWith("Error:  ")) //else its a value and if it doesnet starts with Error:
+            {
+              StringBuffer strRet = new StringBuffer();
+              int regIndex = line.indexOf("\tREG_"); //always is \tREG
+              String valueName = line.substring(4, regIndex);
+              line = line.substring(regIndex + 1);
+              String items[] = line.split("\\s",2); //last 2 tokens
+              //[0] = type
+              //[1] = entry
+              if(items[0].equals("REG_MULTI_SZ"))
+                strRet.append(MULTI_KEY); //add this for older version
+              else if(items[0].equals("REG_EXPAND_SZ"))
+                strRet.append(EXPAND_KEY);
+              else if(items[0].equals("REG_DWORD"))
+                strRet.append(DWORD_KEY);
+              else if(items[0].equals("REG_BINARY"))
+                strRet.append(BINARY_KEY);
+              strRet.append(items[1]);
+              CachedValue currentValue = new CachedValue();
+              if(valueName.equals("<NO NAME>")) //this is the default entry
+                currentValue.setName("");
+              else
+                currentValue.setName(valueName);
+              currentValue.setData(strRet.toString());
+              currentEntry.appendEntry(currentValue);
+            }
+          }
+        }
+        //for the last entry
+        if(currentEntry != null) //if there was a key
+        {
+          Object tmp[] = entry.getSub(currentEntry.getKey());
+          if(tmp != null)
+          {
+            //just append the data if the maximumchildren is not higher as given
+            if ( ( (Integer) tmp[1]).intValue() < maximumChildren)
+              ( (CachedEntry) tmp[0]).appendChildren(currentEntry);
+          }
+        }
+        if(caches == null)
+          caches = new ArrayList();
+        caches.add(entry);
+      }
+      catch(Exception ex)
+      {
+//        ex.printStackTrace(System.out);
+        System.err.println(ex.getLocalizedMessage());
+        throw new RegistryErrorException(ex.getLocalizedMessage());
+      }
+      finally{
+        try{
+          if(br != null)
+            br.close(); //close reader, so that you can delete the file
+        }
+        catch(Exception ex){}
+        if(f != null)
+          if(!f.delete()) //if delete has no success
+            f.deleteOnExit(); //mark it, for delete on exit
+      }
     }
   }
 }
