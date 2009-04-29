@@ -21,11 +21,11 @@ import java.io.FileOutputStream;
  * <b>ATTENTION: Since version 3 you can also read/write dword, binary, expand and multi data - but this is implemented by calling
  * the regedit executeable with parameters and temporary files - so it might not success or have a deadlock!!!</b></p>
  *
- * <p>Copyright: Copyright (c) 2008 - class is under GPL and LGPL</p>
+ * <p>Copyright: Copyright (c) 2009 - class is under GPL and LGPL</p>
  *
  * <p>Company: Taschek Joerg</p>
  *
- * @author <a href="mailto:joerg_t_p@gmx.at">Taschek Joerg</a>
+ * @author <a href="mailto:behaveu@gmail.com">Taschek Joerg</a>
  * @version 2.0 22.03.2007 Methods are renamed and now called by the function the are implementing and the document is now in
  *              english, instead of german<br><br>
  * @version 3.0 03.06.2008 Replaced all int Key values with Key class for storing the path and added new methods for
@@ -39,12 +39,14 @@ import java.io.FileOutputStream;
  *  for the right key<br>
  * @version 3.4 21.10.2008 bug in the parseHexString method when you want to replace the 0 signs! It removed every 0 sign
  * @released 21.10.2008 (internal release)
- * @version 4.0 RC1 09.04.2009 From a discussion at the java-forum.org board, a member told me, that there is also a native
+ * @version 4.0 RC2 14.04.2009 From a discussion at the java-forum.org board, a member told me, that there is also a native
  *                     command called "reg.exe" and vista doesnt need admin privileges when you run it! So the version checks if
  *                     reg.exe is here! If not take regedit.exe
  *                     reg.exe is faster, not so much memory consuming (while parsing cached keys) and under vista UAC is not such
  *                     a big problem as with regedit.exe! The best result is, that you dont need to convert the data anymore
  *                     (if you stil do it, because upgrading from older version, it doesnt matter - so the result will be the same)
+ * @version 4.1 preRelease 29.04.2009 Due lack of time (i was climbing at the weekend) i never released the 4.0 RC2, but i decided to built
+ *                     some new functions and so I will bring out the verison 4.1 with 2 new methods: getKeyType and readAnyValue
  *******************************************************************************************************************************/
 final public class Regor
 {
@@ -146,23 +148,22 @@ final public class Regor
   /**
    * Every binary entry starts with this (when exported or for the import)
    */
-  private static final String BINARY_KEY = "hex:";
+  private static final String BINARY_KEY_IDENT = "hex:";
 
   /**
    * Every dword entry starts with this, also used for import
    */
-  private static final String DWORD_KEY = "dword:";
+  private static final String DWORD_KEY_IDENT = "dword:";
 
   /**
    * Every multi string entry starts with this, also used for import
    */
-  private static final String MULTI_KEY = "hex(7):";
+  private static final String MULTI_KEY_IDENT = "hex(7):";
 
   /**
    * Every expand string entry starts with this, also used for import
    */
-  private static final String EXPAND_KEY = "hex(2):";
-
+  private static final String EXPAND_KEY_IDENT = "hex(2):";
 
   /**
    * Time (milliseconds) for waiting for a file to grow (needed for caching and reading dword, binary, multi and expand values)
@@ -184,6 +185,57 @@ final public class Regor
    * Handler to reg.exe or regedit.exe to read, save and cache entries
    */
   private INativeRegistryHandler nativeHandler = null;
+
+  /**
+   * If the registry entry is a normal string key (plain key) - use <code>getKeyType(Key key, String valueName)/<code> to get the type
+   */
+  public static final int PLAIN_KEY = 1;
+
+  /**
+   * If the registry entry is a binary key - use <code>getKeyType(Key key, String valueName)/<code> to get the type
+   */
+  public static final int BINARY_KEY = 2;
+
+  /**
+   * If the registry entry is a dword key - use <code>getKeyType(Key key, String valueName)/<code> to get the type
+   */
+  public static final int DWORD_KEY = 3;
+
+  /**
+   * If the registry entry is a multi string key - use <code>getKeyType(Key key, String valueName)/<code> to get the type
+   */
+  public static final int MULTI_KEY = 4;
+
+  /**
+   * If the registry entry is a expand string key - use <code>getKeyType(Key key, String valueName)/<code> to get the type
+   */
+  public static final int EXPAND_KEY = 5;
+
+  /**
+   *
+   */
+  private static final String BINARY_KEY_NAME = "REG_BINARY";
+
+  /**
+   *
+   */
+  private static final String DWORD_KEY_NAME = "REG_DWORD";
+
+  /**
+   *
+   */
+  private static final String MULTI_KEY_NAME = "REG_MULTI_SZ";
+
+  /**
+   *
+   */
+  private static final String EXPAND_KEY_NAME = "REG_EXPAND_SZ";
+
+  /**
+   *
+   */
+  private static final String PLAIN_KEY_NAME = "REG_SZ";
+
 
   /******************************************************************************************************************************
    * Constructor to handle with windows registry
@@ -226,7 +278,7 @@ final public class Regor
       throw new RegistryErrorException("NativeHandler is not initalized!");
     if(nativeHandler instanceof RegHandler)
       System.err.println("ATTENTITION!! WRONG METHOD TO STORE BINARY ENTRIES!! PLEASE USE savePlainBinary!");
-    nativeHandler.saveAnyValue(key.getPath(), valueName, BINARY_KEY, hexCommaData);
+    nativeHandler.saveAnyValue(key.getPath(), valueName, BINARY_KEY_IDENT, hexCommaData);
   }
 
   /**********************************************************************************************************************************
@@ -246,7 +298,7 @@ final public class Regor
       plainData = convertStringToHexComma(plainData, false);
     else
       plainData = convertStringToHex(plainData);
-    nativeHandler.saveAnyValue(key.getPath(), valueName, BINARY_KEY, plainData);
+    nativeHandler.saveAnyValue(key.getPath(), valueName, BINARY_KEY_IDENT, plainData);
   }
 
   /**********************************************************************************************************************************
@@ -267,12 +319,13 @@ final public class Regor
       throw new NullPointerException("Valuename cannot be null, because the default value is always a STRING! If you want to read a String use readValue");
     if(nativeHandler == null)
       throw new RegistryErrorException("NativeHandler is not initalized!");
-    String ret = nativeHandler.extractAnyValue(key.getPath(), valueName);
+    String ret = nativeHandler.extractAnyValue(key.getPath(), valueName, false);
     //if it is not null and it starts with hex: it is hopefully a binary entry
-    if(ret != null && ret.startsWith(BINARY_KEY))
-    {
+    if(ret != null && ret.startsWith(BINARY_KEY_IDENT))
       return ret.substring(4);
-    }
+    //if the reghandler or caching is active, the plain key will be returned
+    else if(ret != null && ( nativeHandler instanceof RegHandler || isCachingActive()))
+      return ret;
     return null;
   }
 
@@ -294,9 +347,9 @@ final public class Regor
         throw new RegistryErrorException("Dword entry to high for registry! FFFF FFFF is the highest value!");
     }
     catch(Exception ex){
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
-    nativeHandler.saveAnyValue(key.getPath(), valueName, DWORD_KEY, hexData);
+    nativeHandler.saveAnyValue(key.getPath(), valueName, DWORD_KEY_IDENT, hexData);
   }
 
   /**********************************************************************************************************************************
@@ -316,12 +369,13 @@ final public class Regor
       throw new NullPointerException("Valuename cannot be null, because the default value is always a STRING! If you want to read a String use readValue");
     if(nativeHandler == null)
       throw new RegistryErrorException("NativeHandler is not initalized!");
-    String ret = nativeHandler.extractAnyValue(key.getPath(), valueName);
+    String ret = nativeHandler.extractAnyValue(key.getPath(), valueName, false);
     //if it is not null and it starts with hex: it is hopefully a binary entry
-    if(ret != null && ret.startsWith(DWORD_KEY))
-    {
+    if(ret != null && ret.startsWith(DWORD_KEY_IDENT))
       return ret.substring(6);
-    }
+    //if the reghandler or caching is active, the plain key will be returned
+    else if(ret != null && ( nativeHandler instanceof RegHandler || isCachingActive()))
+      return ret;
     return null;
   }
 
@@ -342,7 +396,7 @@ final public class Regor
       throw new RegistryErrorException("NativeHandler is not initalized!");
     if(nativeHandler instanceof RegHandler)
       System.err.println("ATTENTITION!! WRONG METHOD TO STORE MULTI ENTRIES!! PLEASE USE savePlainMulti!");
-    nativeHandler.saveAnyValue(key.getPath(), valueName, MULTI_KEY, hexCommaZeroData);
+    nativeHandler.saveAnyValue(key.getPath(), valueName, MULTI_KEY_IDENT, hexCommaZeroData);
   }
 
   /**********************************************************************************************************************************
@@ -360,7 +414,7 @@ final public class Regor
       throw new RegistryErrorException("NativeHandler is not initalized!");
     if(nativeHandler instanceof RegeditHandler)
       plainData = convertStringToHexComma(plainData, true);
-    nativeHandler.saveAnyValue(key.getPath(), valueName, MULTI_KEY, plainData);
+    nativeHandler.saveAnyValue(key.getPath(), valueName, MULTI_KEY_IDENT, plainData);
   }
 
   /**********************************************************************************************************************************
@@ -381,12 +435,13 @@ final public class Regor
       throw new NullPointerException("Valuename cannot be null, because the default value is always a STRING! If you want to read a String use readValue");
     if(nativeHandler == null)
       throw new RegistryErrorException("NativeHandler is not initalized!");
-    String ret = nativeHandler.extractAnyValue(key.getPath(), valueName);
+    String ret = nativeHandler.extractAnyValue(key.getPath(), valueName, false);
     //if it is not null and it starts with hex: it is hopefully a binary entry
-    if(ret != null && ret.startsWith(MULTI_KEY))
-    {
+    if(ret != null && ret.startsWith(MULTI_KEY_IDENT))
       return ret.substring(7);
-    }
+    //if the reghandler or caching is active, the plain key will be returned
+    else if(ret != null && ( nativeHandler instanceof RegHandler || isCachingActive()))
+      return ret;
     return null;
   }
 
@@ -407,7 +462,7 @@ final public class Regor
       throw new RegistryErrorException("NativeHandler is not initalized!");
     if(nativeHandler instanceof RegHandler)
       System.err.println("ATTENTITION!! WRONG METHOD TO STORE EXPAND ENTRIES!! PLEASE USE savePlainExpand!");
-    nativeHandler.saveAnyValue(key.getPath(), valueName, EXPAND_KEY, hexCommaZeroData);
+    nativeHandler.saveAnyValue(key.getPath(), valueName, EXPAND_KEY_IDENT, hexCommaZeroData);
   }
 
   /**********************************************************************************************************************************
@@ -425,7 +480,7 @@ final public class Regor
       throw new RegistryErrorException("NativeHandler is not initalized!");
     if(nativeHandler instanceof RegeditHandler)
       plainData = convertStringToHexComma(plainData, true);
-    nativeHandler.saveAnyValue(key.getPath(), valueName, EXPAND_KEY, plainData);
+    nativeHandler.saveAnyValue(key.getPath(), valueName, EXPAND_KEY_IDENT, plainData);
   }
 
   /**********************************************************************************************************************************
@@ -445,12 +500,13 @@ final public class Regor
       throw new NullPointerException("Valuename cannot be null, because the default value is always a STRING! If you want to read a String use readValue");
     if(nativeHandler == null)
       throw new RegistryErrorException("NativeHandler is not initalized!");
-    String ret = nativeHandler.extractAnyValue(key.getPath(), valueName);
+    String ret = nativeHandler.extractAnyValue(key.getPath(), valueName, false);
     //if it is not null and it starts with hex: it is hopefully a binary entry
-    if(ret != null && ret.startsWith(EXPAND_KEY))
-    {
+    if(ret != null && ret.startsWith(EXPAND_KEY_IDENT))
       return ret.substring(7);
-    }
+    //if the reghandler or caching is active, the plain key will be returned
+    else if(ret != null && ( nativeHandler instanceof RegHandler || isCachingActive()))
+      return ret;
     return null;
   }
 
@@ -492,15 +548,15 @@ final public class Regor
     }
     catch (InvocationTargetException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalArgumentException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalAccessException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
   }
 
@@ -562,7 +618,7 @@ final public class Regor
     }
     catch(Exception ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     finally{
       _closeKey(handle);
@@ -618,15 +674,15 @@ final public class Regor
     }
     catch (InvocationTargetException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalArgumentException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalAccessException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
   }
 
@@ -650,7 +706,7 @@ final public class Regor
    ****************************************************************************************************************************/
   public List listKeys(Key key) throws RegistryErrorException
   {
-    return listKeys(key,null);
+    return listKeys(key, null);
   }
 
   /******************************************************************************************************************************
@@ -688,7 +744,7 @@ final public class Regor
     }
     catch(Exception ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     finally{
       _closeKey(handle);
@@ -744,20 +800,35 @@ final public class Regor
     }
     catch (InvocationTargetException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalArgumentException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalAccessException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
   }
 
   /******************************************************************************************************************************
    * Method deletes the specified value (YOU CAN ALSO DELETE BINARY, DWORD, MULTI OR EXPAND ENTRIES!!!)
+   * @since version 4: 14.04.2009
+   * @param key the key obtained by openKey
+   * @param valueName name of String value you want to delete (if the string is empty or null the default entry will be
+   * cleared)
+   * @return int
+   * @throws RegistryErrorException
+   *****************************************************************************************************************************/
+  public int deleteEntry(Key key, String valueName) throws RegistryErrorException
+  {
+    return _delValue(key.getKey(), valueName);
+  }
+
+  /******************************************************************************************************************************
+   * Method deletes the specified value (YOU CAN ALSO DELETE BINARY, DWORD, MULTI OR EXPAND ENTRIES!!!)
+   * @deprecated use <code>int deleteEntry(Key key, String valueName)</code> instead of
    * @param key the key obtained by openKey
    * @param valueName name of String value you want to delete (if the string is empty or null the default entry will be
    * deleted)
@@ -773,7 +844,7 @@ final public class Regor
    * Method deletes the specified value (YOU CAN ALSO DELETE BINARY, DWORD, MULTI OR EXPAND ENTRIES!!!)
    * @param key the key obtained by openKey
    * @param valueName name of String value you want to delete (if the string is empty or null the default entry will be
-   * deleted)
+   * cleared)
    * @return int
    * @throws RegistryErrorException
    * @deprecated use <code>int delValue(Key key, String valueName)</code> instead of
@@ -790,16 +861,33 @@ final public class Regor
     }
     catch (InvocationTargetException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalArgumentException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalAccessException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
+  }
+
+  /******************************************************************************************************************************
+   * Method saves the specified string value (DO NOT USE THIS METHOD FOR READING BINARY, DWORD, MULTI OR EXPAND ENTRIES - JUST
+   * FOR SZ - STRING ENTRIES!!!)
+   * Method saves or create a simple character sequence (REG_SZ)
+   * If you want to change the default Value the valueName has to be null or nothing
+   * @since version 4: 14.04.2009
+   * @param key obtained by openKey
+   * @param valueName the string value name in the registry you want to set
+   * @param value the new value you want to set
+   * @return on success, return is ERROR_SUCCESS if not -1 or sth else will be returned
+   * @throws RegistryErrorException
+   ****************************************************************************************************************************/
+  public int saveValue(Key key, String valueName, String value) throws RegistryErrorException
+  {
+    return _setValue(key.getKey(), valueName, value);
   }
 
   /******************************************************************************************************************************
@@ -807,6 +895,7 @@ final public class Regor
    * FOR SZ - STRING ENTRIES!!!)
    * Methode setzt (oder erstellt) einen Wert auf eine Zeichenfolge
    * Will man den defaulteintrag ändern, so muss man valueName "" übergeben
+   * @deprecated use <code>saveValue</code> instead of - just changed name
    * @param key obtained by openKey
    * @param valueName the string value name in the registry you want to set
    * @param value the new value you want to set
@@ -842,16 +931,34 @@ final public class Regor
     }
     catch (InvocationTargetException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalArgumentException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalAccessException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
+  }
+
+  /******************************************************************************************************************************
+   * Reads the value of a string value (DO NOT USE THIS METHOD FOR READING BINARY, DWORD, MULTI OR EXPAND ENTRIES - JUST
+   * FOR SZ - STRING ENTRIES!!!)
+   * @param key obtained from openKey
+   * @param valueName the string value which you want to read (if you want to obtain the default entry the valueName should be
+   * empty or NULL)
+   * @return byte[] if found the data in the string value will be returned (to get a string use the class method parseValue(byte[]))
+   * on error NULL will be returned
+   * @throws RegistryErrorException
+   *****************************************************************************************************************************/
+  public String readValueAsString(Key key, String valueName) throws RegistryErrorException
+  {
+    byte buf[] = readValue(key, valueName);
+    if(buf == null)
+      return null;
+    return parseValue(buf);
   }
 
   /******************************************************************************************************************************
@@ -889,16 +996,135 @@ final public class Regor
     }
     catch (InvocationTargetException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalArgumentException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalAccessException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
+  }
+
+  /******************************************************************************************************************************
+   * Method reads any value and give it back as a string result - this method can be time consuming, since it determines
+   * @param key Key
+   * @param valueName String
+   * @return String
+   * @throws RegistryErrorException
+   *****************************************************************************************************************************/
+  public String readAnyValueString(Key key, String valueName) throws RegistryErrorException
+  {
+    if(key == null)
+      throw new NullPointerException("Registry key cannot be null");
+    if(valueName == null || valueName.equals(""))
+      return readValueAsString(key, valueName);
+    try{
+      String tmpDataType = nativeHandler.extractAnyValue(key.getPath(), valueName, true);
+      if(nativeHandler instanceof RegHandler)
+      {
+        if(tmpDataType != null && tmpDataType.trim().length() > 0)
+        {
+          if(tmpDataType.startsWith(BINARY_KEY_NAME))
+            return tmpDataType.substring(BINARY_KEY_NAME.length() + 1);
+          else if(tmpDataType.startsWith(DWORD_KEY_NAME))
+            return tmpDataType.substring(DWORD_KEY_NAME.length() + 1);
+          else if(tmpDataType.startsWith(PLAIN_KEY_NAME))
+            return tmpDataType.substring(PLAIN_KEY_NAME.length() + 1);
+          else if(tmpDataType.startsWith(EXPAND_KEY_NAME))
+            return tmpDataType.substring(EXPAND_KEY_NAME.length() + 1);
+          else if(tmpDataType.startsWith(MULTI_KEY_NAME))
+            return tmpDataType.substring(MULTI_KEY_NAME.length() + 1);
+        }
+      }
+      else
+      {
+        if(tmpDataType != null && tmpDataType.trim().length() > 0)
+        {
+          if(tmpDataType.startsWith(BINARY_KEY_IDENT))
+            return parseHexString(tmpDataType.substring(BINARY_KEY_IDENT.length()), false);
+          else if(tmpDataType.startsWith(DWORD_KEY_IDENT))
+            return tmpDataType.substring(DWORD_KEY_IDENT.length());
+          else if(tmpDataType.startsWith(EXPAND_KEY_IDENT))
+            return parseHexString(tmpDataType.substring(EXPAND_KEY_IDENT.length()), true);
+          else if(tmpDataType.startsWith(MULTI_KEY_IDENT))
+            return parseHexString(tmpDataType.substring(MULTI_KEY_IDENT.length()), true);
+          else //if it starts with plain text, it should be a plain text field and we remove the trailing and leading "
+            return tmpDataType.substring(1, tmpDataType.length() - 2);
+        }
+      }
+    }
+    catch(Exception ex)
+    {
+      throw RegistryErrorException.getException(ex);
+    }
+//    readValue(key, valueName);
+    return null;
+  }
+
+  /******************************************************************************************************************************
+   * Method returns the type of the key + valuename
+   * @param key Key the key handle
+   * @param valueName String when valueName is empty or null plain key will be returned, because only plain keys can have empty
+   * names
+   * @return int 0 = invalid key or cannot determine keytype, 1 = plain, 2 = binary, 3 = dword, 4 = multi, 5 = expand key - use the
+   * definied types *_KEY
+   * @throws RegistryErrorException
+   *****************************************************************************************************************************/
+  public int getKeyType(Key key, String valueName) throws RegistryErrorException
+  {
+    int ret = 0;
+    if(key == null)
+      throw new NullPointerException("Registry key cannot be null");
+    if(valueName == null || valueName.equals(""))
+    {
+      ret = PLAIN_KEY;
+    }
+    else
+    {
+      try{
+        String tmpDataType = nativeHandler.extractAnyValue(key.getPath(), valueName, true);
+        if(nativeHandler instanceof RegHandler)
+        {
+          if(tmpDataType != null && tmpDataType.trim().length() > 0)
+          {
+            if(tmpDataType.startsWith(BINARY_KEY_NAME))
+              return BINARY_KEY;
+            else if(tmpDataType.startsWith(DWORD_KEY_NAME))
+              return DWORD_KEY;
+            else if(tmpDataType.startsWith(PLAIN_KEY_NAME))
+              return PLAIN_KEY;
+            else if(tmpDataType.startsWith(EXPAND_KEY_NAME))
+              return EXPAND_KEY;
+            else if(tmpDataType.startsWith(MULTI_KEY_NAME))
+              return MULTI_KEY;
+          }
+        }
+        else
+        {
+          if(tmpDataType != null && tmpDataType.trim().length() > 0)
+          {
+            if(tmpDataType.startsWith(BINARY_KEY_IDENT))
+              return BINARY_KEY;
+            else if(tmpDataType.startsWith(DWORD_KEY_IDENT))
+              return DWORD_KEY;
+            else if(tmpDataType.startsWith(EXPAND_KEY_IDENT))
+              return EXPAND_KEY;
+            else if(tmpDataType.startsWith(MULTI_KEY_IDENT))
+              return MULTI_KEY;
+            else //if it starts with plain text, it should be a plain text field
+              return PLAIN_KEY;
+          }
+        }
+      }
+      catch(Exception ex)
+      {
+        throw RegistryErrorException.getException(ex);
+      }
+    }
+    return ret;
   }
 
   /******************************************************************************************************************************
@@ -931,15 +1157,15 @@ final public class Regor
     }
     catch (InvocationTargetException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalArgumentException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalAccessException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
   }
 
@@ -977,15 +1203,15 @@ final public class Regor
     }
     catch (InvocationTargetException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalArgumentException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalAccessException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
   }
 
@@ -1029,15 +1255,15 @@ final public class Regor
     }
     catch (InvocationTargetException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalArgumentException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalAccessException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
   }
 
@@ -1071,15 +1297,15 @@ final public class Regor
     }
     catch (InvocationTargetException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalArgumentException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
     catch (IllegalAccessException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
   }
 
@@ -1137,15 +1363,15 @@ final public class Regor
     }
     catch (InvocationTargetException ex1)
     {
-      throw new RegistryErrorException(ex1.getMessage());
+      throw RegistryErrorException.getException(ex1);
     }
     catch (IllegalArgumentException ex1)
     {
-      throw new RegistryErrorException(ex1.getMessage());
+      throw RegistryErrorException.getException(ex1);
     }
     catch (IllegalAccessException ex1)
     {
-      throw new RegistryErrorException(ex1.getMessage());
+      throw RegistryErrorException.getException(ex1);
     }
   }
 
@@ -1358,22 +1584,22 @@ final public class Regor
     }
     catch (ClassNotFoundException ex)
     {
-      throw new RegistryErrorException(ex.getMessage());
+      throw RegistryErrorException.getException(ex);
     }
   }
 
   /**********************************************************************************************************************************
    * Method is looking for reg.exe or regedit.exe (first reg.exe if not found, take regedit.exe)
    * @throws RegistryErrorException throws this exception when no reg.exe or regedit.exe is found
-   * @todo vista UAC
+   * @todo test vista UAC
    *********************************************************************************************************************************/
   private void initNatvieRegistry() throws RegistryErrorException
   {
     try{
       Runtime.getRuntime().exec("reg.exe"); //if no exception is thrown, then reg.exe was successfull
       //ARSCH
-      nativeHandler = new RegHandler(); //reg.exe handler
-//      nativeHandler = new RegeditHandler();
+//      nativeHandler = new RegHandler(); //reg.exe handler
+      nativeHandler = new RegeditHandler();
     }
     catch(Exception ex)
     {
@@ -1542,29 +1768,38 @@ final public class Regor
   }
 
   /**********************************************************************************************************************************
-   * Method parses the data for caching - not used anymore
-   * @param data String
-   * @return String
+   * Method change the cached values to the new entries
+   * @param key String
+   * @param name String
+   * @param value String
+   * @throws NoEntryException
    *********************************************************************************************************************************/
-  private static String parseData(String data)
+  private void setChachedValue(String key, String name, String value)
   {
-    if(data == null || data.length() == 0)
-      return data;
-    if(data.startsWith(BINARY_KEY))
-      return data.substring(4);
-//      return parseHexString(data.substring(4), false);
-    else if(data.startsWith(DWORD_KEY))
-      return data.substring(6);
-//      return parseHexString(data.substring(6), false);
-    else if(data.startsWith(MULTI_KEY))
-      return data.substring(7);
-//      return parseHexString(data.substring(7), true);
-    else if(data.startsWith(EXPAND_KEY))
-      return data.substring(7);
-//      return parseHexString(data.substring(7), true);
-    else if(data.startsWith("\""))
-      return data.replaceAll("\"", "");
-    return data;
+    if(isCachingActive())
+    {
+      for(int x = 0; caches != null && x != caches.size(); x++)
+      {
+        CachedEntry entry = (CachedEntry) caches.get(x);
+        CachedEntry child = entry.findSub(key);
+        if(child != null)
+        {
+          List list = child.getEntries();
+          for(int y = 0; list != null && y != list.size(); y++)
+          {
+            CachedValue val = (CachedValue)list.get(y);
+            if(val != null)
+            {
+              if(val.getName().equals(name))
+              {
+                val.setData(value);
+                break; //look up other cache entries
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   /**********************************************************************************************************************************
@@ -1601,24 +1836,29 @@ final public class Regor
 //    Key _key = regor.openKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\debis");
 //    regor.cacheKeys(_key, 2);
     Key __key = regor.openKey(_key, "xmlprov");
-    regor.setCaching(true);
-    regor.cacheKeys(_key);
-    System.out.println("KEY:: " + __key);
-//    System.out.println(">> " + regor.readExpand(__key, "ServiceDll"));
-//    System.out.println(">>> " + Regor.parseHexString(regor.readExpand(__key, "ServiceDll"), true));
-    regor.savePlainMulti(__key, "multi", "WURSTSEMAL");
-    System.out.println(">>>>MULTI " + regor.readMulti(__key,"multi"));
-    System.out.println(">>>PARSEMULTI " + Regor.parseHexString(regor.readMulti(__key, "multi"), true));
+//    System.out.println(">>> " + regor.getKeyType(__key, "Description"));
+    System.out.println(">>1 " + regor.readAnyValueString(__key, "Description"));
+    System.out.println(">>2 " + regor.readAnyValueString(__key, "dword"));
+    System.out.println(">>3 " + regor.readAnyValueString(__key, "bla"));
+    System.out.println(">>4 " + regor.readAnyValueString(__key, "bin2"));
+    System.out.println(">>5 " + regor.readAnyValueString(__key, "expand2"));
+    System.out.println(">>6 " + regor.readAnyValueString(__key, "multi"));
+
+    System.out.println(">>>>MULTI1 " + regor.readMulti(__key,"multi"));
+    System.out.println(">>>PARSEMULTI1 " + Regor.parseHexString(regor.readMulti(__key, "multi"), true));
+    regor.savePlainMulti(__key, "multi", "WURSTSEMAL @ " + System.currentTimeMillis());
+    System.out.println(">>>>MULTI2 " + regor.readMulti(__key,"multi"));
+    System.out.println(">>>PARSEMULTI2 " + Regor.parseHexString(regor.readMulti(__key, "multi"), true));
     System.out.println(">>>>EXPAND " + regor.readExpand(__key,"expand"));
     System.out.println(">>>PARSEEXPAND " + Regor.parseHexString(regor.readExpand(__key, "expand"), true));
     System.out.println(">>>>DWORD " + regor.readDword(__key,"dword"));
     System.out.println(">>>PARSEDWORD " + Regor.parseHexString(regor.readMulti(__key, "dword"), true));
     System.out.println(">>>>BIN " + regor.readBinary(__key,"bin"));
     System.out.println(">>>PARSEBIN " + Regor.parseHexString(regor.readBinary(__key, "bin"), false));
-    regor.savePlainMulti(__key, "multi2", "%SystemRoot%\\System32\\svchost.exe -k netsvcs");
-    regor.savePlainExpand(__key, "expand2", "%SystemRoot%\\System32\\svchost.exe -k netsvcs");
-    regor.savePlainBinary(__key, "bin2", "%SystemRoot%\\System32\\svchost.exe -k netsvcs");
-    regor.cacheKeys(__key, 2);
+//    regor.savePlainMulti(__key, "multi2", "%SystemRoot%\\System32\\svchost.exe -k netsvcs");
+//    regor.savePlainExpand(__key, "expand2", "%SystemRoot%\\System32\\svchost.exe -k netsvcs");
+//    regor.savePlainBinary(__key, "bin2", "%SystemRoot%\\System32\\svchost.exe -k netsvcs");
+//    regor.cacheKeys(__key, 2);
     regor.closeKey(__key);
     regor.closeKey(_key);
     if(true)
@@ -1720,7 +1960,7 @@ final public class Regor
   private interface INativeRegistryHandler
   {
     boolean saveAnyValue(String path, String valueName, String type, String data) throws RegistryErrorException;
-    String extractAnyValue(String path, String valueName) throws RegistryErrorException;
+    String extractAnyValue(String path, String valueName, boolean appendType) throws RegistryErrorException;
     void cacheKeys(String key, int maximumChildren) throws RegistryErrorException;
   }
 
@@ -1761,12 +2001,13 @@ final public class Regor
         Runtime.getRuntime().exec("regedit /s /i " + f.getAbsolutePath()).waitFor(); //<-- Waiting for END of Process
         if(!f.delete()) //if delete has no success
           f.deleteOnExit(); //mark it, for delete on exit
+        setChachedValue(path, valueName, data);
       }
       catch(Exception ex)
       {
         System.err.println(ex.getLocalizedMessage());
 //      ex.printStackTrace(System.out);
-        throw new RegistryErrorException(ex.getLocalizedMessage());
+        throw RegistryErrorException.getException(ex);
       }
       return true;
     }
@@ -1776,10 +2017,12 @@ final public class Regor
      * it would be the processbuilder)
      * @param path String the registry path to the parent key
      * @param valueName String the valuename which should be read from the registry key
+     * @param appendType boolean if the method should append the type - not needed with regedit.exe method, because the type is always
+     * added
      * @return String null if the valuename is not found or the path could not be exported - otherwhise the data from the registry
      * @throws RegistryErrorException
      *********************************************************************************************************************************/
-    public String extractAnyValue(String path, String valueName) throws RegistryErrorException
+    public String extractAnyValue(String path, String valueName, boolean appendType) throws RegistryErrorException
     {
       try{
         String tmp = getCachedValue(path, valueName);
@@ -1863,7 +2106,7 @@ final public class Regor
       {
         System.err.println(ex.getLocalizedMessage());
 //      ex.printStackTrace(System.out);
-        throw new RegistryErrorException(ex.getLocalizedMessage());
+        throw RegistryErrorException.getException(ex);
       }
       finally{
         try{
@@ -2016,7 +2259,7 @@ final public class Regor
       {
 //      ex.printStackTrace(System.out);
         System.err.println(ex.getLocalizedMessage());
-        throw new RegistryErrorException(ex.getLocalizedMessage());
+        throw RegistryErrorException.getException(ex);
       }
     }
   }
@@ -2037,21 +2280,22 @@ final public class Regor
     public boolean saveAnyValue(String path, String valueName, String type, String data) throws RegistryErrorException
     {
       try{
-        if(type.equals(BINARY_KEY))
+        if(type.equals(BINARY_KEY_IDENT))
           type = "REG_BINARY";
-        else if(type.equals(DWORD_KEY))
+        else if(type.equals(DWORD_KEY_IDENT))
           type = "REG_DWORD";
-        else if(type.equals(MULTI_KEY))
+        else if(type.equals(MULTI_KEY_IDENT))
           type = "REG_MULTI_SZ";
-        else if(type.equals(EXPAND_KEY))
+        else if(type.equals(EXPAND_KEY_IDENT))
           type = "REG_EXPAND_SZ";
         Runtime.getRuntime().exec("reg add \"" + path + "\" /v \"" + valueName + "\" /t " + type + " /d \"" + data + "\" /f");
+        setChachedValue(path, valueName, data);
       }
       catch(Exception ex)
       {
 //        ex.printStackTrace(System.out);
         System.err.println(ex.getLocalizedMessage());
-        throw new RegistryErrorException(ex.getLocalizedMessage());
+        throw RegistryErrorException.getException(ex);
       }
       return true;
     }
@@ -2061,10 +2305,11 @@ final public class Regor
      * it would be the processbuilder)
      * @param path String the registry path to the parent key
      * @param valueName String the valuename which should be read from the registry key
+     * @param appendType boolean add the type to the return string
      * @return String null if the valuename is not found or the path could not be exported - otherwhise the data from the registry
      * @throws RegistryErrorException
      *********************************************************************************************************************************/
-    public String extractAnyValue(String path, String valueName) throws RegistryErrorException
+    public String extractAnyValue(String path, String valueName, boolean appendType) throws RegistryErrorException
     {
       try{
         String tmp = getCachedValue(path, valueName);
@@ -2106,17 +2351,24 @@ final public class Regor
             {
               line = line.substring(regIndex + 1);
               String items[] = line.split("\\s", 2);
+              if(appendType)
+              {
+                strRet.append(items[0]);
+                strRet.append(" ");
+              }
               //[0] = type
               //[1] = entry
-              if (items[0].equals("REG_MULTI_SZ"))
+/*              if (items[0].equals("REG_MULTI_SZ"))
                 strRet.append(MULTI_KEY); //add this for older version
               else if (items[0].equals("REG_EXPAND_SZ"))
                 strRet.append(EXPAND_KEY);
               else if (items[0].equals("REG_DWORD"))
                 strRet.append(DWORD_KEY);
               else if (items[0].equals("REG_BINARY"))
-                strRet.append(BINARY_KEY);
+                strRet.append(BINARY_KEY);*/
               strRet.append(items[1]);
+              if(items[0].equals("REG_MULTI_SZ") && strRet.toString().endsWith("\\0\\0"))
+                strRet.setLength(strRet.length() - 4);
               break;
             }
           }
@@ -2126,7 +2378,7 @@ final public class Regor
       {
 //        ex.printStackTrace(System.out);
         System.err.println(ex.getLocalizedMessage());
-        throw new RegistryErrorException(ex.getLocalizedMessage());
+        throw RegistryErrorException.getException(ex);
       }
       finally{
         try{
@@ -2202,14 +2454,14 @@ final public class Regor
               String items[] = line.split("\\s",2); //last 2 tokens
               //[0] = type
               //[1] = entry
-              if(items[0].equals("REG_MULTI_SZ"))
+/*              if(items[0].equals("REG_MULTI_SZ"))
                 strRet.append(MULTI_KEY); //add this for older version
               else if(items[0].equals("REG_EXPAND_SZ"))
                 strRet.append(EXPAND_KEY);
               else if(items[0].equals("REG_DWORD"))
                 strRet.append(DWORD_KEY);
               else if(items[0].equals("REG_BINARY"))
-                strRet.append(BINARY_KEY);
+                strRet.append(BINARY_KEY);*/
               strRet.append(items[1]);
               CachedValue currentValue = new CachedValue();
               if(valueName.equals("<NO NAME>")) //this is the default entry
@@ -2240,7 +2492,7 @@ final public class Regor
       {
 //        ex.printStackTrace(System.out);
         System.err.println(ex.getLocalizedMessage());
-        throw new RegistryErrorException(ex.getLocalizedMessage());
+        throw RegistryErrorException.getException(ex);
       }
       finally{
         try{

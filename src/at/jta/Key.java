@@ -9,7 +9,7 @@ package at.jta;
  *
  * <p>Company: Taschek Joerg</p>
  *
- * @author <a href="mailto:joerg_t_p@gmx.at">Taschek Joerg</a>
+ * @author <a href="mailto:behaveu@gmail.com">Taschek Joerg</a>
  * @version 1.0 First version 03.06.08 (my dads birthday, hurray ;))
  ***********************************************************************************************************************************/
 final public class Key

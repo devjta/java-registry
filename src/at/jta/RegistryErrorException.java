@@ -12,11 +12,12 @@ import java.io.IOException;
  *
  * <p>Company: Taschek Joerg</p>
  *
- * @author <a href="mailto:joerg_t_p@gmx.at">Taschek Joerg</a>
+ * @author <a href="mailto:behaveu@gmail.com">Taschek Joerg</a>
  * @version 1.0
+ * @version 2.0 29.04.2009 Added static method to get handle exceptions
  ******************************************************************************************************************************/
 final public class RegistryErrorException
-    extends IOException
+    extends Exception
 {
 
   /******************************************************************************************************************************
@@ -26,5 +27,28 @@ final public class RegistryErrorException
   public RegistryErrorException(String reason)
   {
     super(reason);
+  }
+
+  /******************************************************************************************************************************
+   * Constructor with other exception to throw
+   * @param ex Exception
+   *****************************************************************************************************************************/
+  public RegistryErrorException(Exception ex)
+  {
+    super(ex);
+  }
+
+  /******************************************************************************************************************************
+   * Method returns a RegistryErrorException - either creating it new or if it is already a registryerrorexception it returns the
+   * original one
+   * @param ex Exception
+   * @return RegistryErrorException
+   *****************************************************************************************************************************/
+  public static RegistryErrorException getException(Exception ex)
+  {
+    if(ex instanceof RegistryErrorException)
+      return (RegistryErrorException)ex;
+    else
+      return new RegistryErrorException(ex);
   }
 }
