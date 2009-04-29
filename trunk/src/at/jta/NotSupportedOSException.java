@@ -10,7 +10,7 @@ package at.jta;
  *
  * <p>Company: Taschek Joerg</p>
  *
- * @author <a href="mailto:joerg_t_p@gmx.at">Taschek Joerg</a>
+ * @author <a href="mailto:behaveu@gmail.com">Taschek Joerg</a>
  * @version 1.0
  *******************************************************************************************************************************/
 final public class NotSupportedOSException
