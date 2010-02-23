@@ -16,6 +16,8 @@ package at.jta;
 final public class NotSupportedOSException
     extends RuntimeException
 {
+  private static final long serialVersionUID = 1L;
+  
   /******************************************************************************************************************************
    * Constructor with message to throw
    * @param str String

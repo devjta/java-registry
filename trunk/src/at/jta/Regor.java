@@ -47,6 +47,9 @@ import java.io.FileOutputStream;
  *                     (if you stil do it, because upgrading from older version, it doesnt matter - so the result will be the same)
  * @version 4.1 preRelease 29.04.2009 Due lack of time (i was climbing at the weekend) i never released the 4.0 RC2, but i decided to built
  *                     some new functions and so I will bring out the verison 4.1 with 2 new methods: getKeyType and readAnyValue
+ * @version 4.2 Release 23.02.2010 As i changed my workplace and i forgot to release the new source as jar-file, I finaly release 
+ *                      a newer version, which should be Win7/Vista safe, because it uses reg.exe instead of regedit.exe (for non DWORD entries)
+ *                      I alos switched from my JBuilder2k5 to Eclipse, because my new company didnt want to buy me a Jbuilder :( - at least SVN support is now better :D  
  *******************************************************************************************************************************/
 final public class Regor
 {
@@ -1810,7 +1813,7 @@ final public class Regor
   {
     try{
       long size = file.length();
-      Thread.currentThread().sleep(WAIT_FOR_FILE);
+      Thread.sleep(WAIT_FOR_FILE);
       if(size != file.length())
         _waitForFile(file);
     }
@@ -1948,6 +1951,7 @@ final public class Regor
   //Exception is used when searching with cached values and the cached values has no entries
   private final static class NoEntryException extends Exception
   {
+	private static final long serialVersionUID = 1L;
     public NoEntryException(String str)
     {
       super(str);

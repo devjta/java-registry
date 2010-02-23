@@ -1,7 +1,5 @@
 package at.jta;
 
-import java.io.IOException;
-
 /*******************************************************************************************************************************
  *
  * <p>Title: class for throwing exceptions </p>
@@ -19,6 +17,8 @@ import java.io.IOException;
 final public class RegistryErrorException
     extends Exception
 {
+
+  private static final long serialVersionUID = 1L;
 
   /******************************************************************************************************************************
    * Constructor with message to throw
