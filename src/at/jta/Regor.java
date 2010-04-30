@@ -49,7 +49,9 @@ import java.io.FileOutputStream;
  *                     some new functions and so I will bring out the verison 4.1 with 2 new methods: getKeyType and readAnyValue
  * @version 4.2 Release 23.02.2010 As i changed my workplace and i forgot to release the new source as jar-file, I finaly release 
  *                      a newer version, which should be Win7/Vista safe, because it uses reg.exe instead of regedit.exe (for non DWORD entries)
- *                      I alos switched from my JBuilder2k5 to Eclipse, because my new company didnt want to buy me a Jbuilder :( - at least SVN support is now better :D  
+ *                      I also switched from my JBuilder2k5 to Eclipse, because my new company didnt want to buy me a Jbuilder :( - at least SVN support is now better :D 
+ * @version 4.3 Release 30.04.2010 I checked in a debug version, so that it will not work under vista or win7 without admin privs, because it was not
+ *  					looking after reg.exe. I also found some parsing errors and fixed them..                  
  *******************************************************************************************************************************/
 final public class Regor
 {
@@ -1030,6 +1032,7 @@ final public class Regor
       {
         if(tmpDataType != null && tmpDataType.trim().length() > 0)
         {
+        	tmpDataType = tmpDataType.trim();
           if(tmpDataType.startsWith(BINARY_KEY_NAME))
             return tmpDataType.substring(BINARY_KEY_NAME.length() + 1);
           else if(tmpDataType.startsWith(DWORD_KEY_NAME))
@@ -1046,6 +1049,7 @@ final public class Regor
       {
         if(tmpDataType != null && tmpDataType.trim().length() > 0)
         {
+        	tmpDataType = tmpDataType.trim();
           if(tmpDataType.startsWith(BINARY_KEY_IDENT))
             return parseHexString(tmpDataType.substring(BINARY_KEY_IDENT.length()), false);
           else if(tmpDataType.startsWith(DWORD_KEY_IDENT))
@@ -1600,9 +1604,7 @@ final public class Regor
   {
     try{
       Runtime.getRuntime().exec("reg.exe"); //if no exception is thrown, then reg.exe was successfull
-      //ARSCH
-//      nativeHandler = new RegHandler(); //reg.exe handler
-      nativeHandler = new RegeditHandler();
+      nativeHandler = new RegHandler(); //reg.exe handler
     }
     catch(Exception ex)
     {
@@ -1831,9 +1833,6 @@ final public class Regor
   public static void main(String[] args) throws Exception
   {
     Regor regor = new Regor();
-
-
-
     Key _key = regor.openKey(HKEY_LOCAL_MACHINE, "SYSTEM\\ControlSet001\\Services");
 //    regor.setCaching(true);
 //    Key _key = regor.openKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\debis");
@@ -2350,6 +2349,8 @@ final public class Regor
           else if(lineFound && line.trim().length() > 0)
           {
             int regIndex = line.indexOf("\tREG_");
+            if(regIndex == -1)
+            	regIndex = line.indexOf("    REG_");
             String foundValueName = line.substring(4, regIndex);
             if(foundValueName.equals(valueName))
             {
