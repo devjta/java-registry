@@ -51,10 +51,18 @@ import java.io.FileOutputStream;
  *                      a newer version, which should be Win7/Vista safe, because it uses reg.exe instead of regedit.exe (for non DWORD entries)
  *                      I also switched from my JBuilder2k5 to Eclipse, because my new company didnt want to buy me a Jbuilder :( - at least SVN support is now better :D 
  * @version 4.3 Release 30.04.2010 I checked in a debug version, so that it will not work under vista or win7 without admin privs, because it was not
- *  					looking after reg.exe. I also found some parsing errors and fixed them..                  
+ *  					looking after reg.exe. I also found some parsing errors and fixed them..  
+ * @version 4.4 Release 17.05.2010 After a user told me, he has problems reading out binary entries, i discovered several bugs with vista and win7. It seems to be
+ * 						that the output from reg.exe has been changed. I just tested with XP and never with vista/win7, but now i made tests with win7 
+ * 						and everything seems to be ok - now ;)                
  *******************************************************************************************************************************/
 final public class Regor
 {
+	/**
+	 * version handle to difference between version - introduced with version 4.4 = 440
+	 */
+	public static final long serialVersionUID = 440L;	
+	
   /**
    * the old handle to the HKEY_CLASSES_ROOT registry root node
    */
@@ -1833,6 +1841,17 @@ final public class Regor
   public static void main(String[] args) throws Exception
   {
     Regor regor = new Regor();
+    if(true)
+    {
+    	Key key = regor.openKey(HKEY_CURRENT_USER, "Software\\Adobe\\CommonFiles");
+    	System.out.println(">>>!" + Regor.parseHexString(regor.readBinary(key, "BINARY"), false));
+    	System.out.println(">>>!" + regor.readBinary(key, "BINARY"));
+    	System.out.println(">>>RA!" + regor.readAnyValueString(key, "BINARY"));
+    	System.out.println(">>>!" + Regor.parseHexString(regor.readAnyValueString(key, "BINARY"), false) + "!");
+    	System.out.println(">>>>!" + Regor.parseHexString(regor.readDword(key, "PFERDA"), true));
+    	System.out.println(">>>>!" + regor.readDword(key, "PFERDA"));
+    	regor.closeKey(key);
+    }
     Key _key = regor.openKey(HKEY_LOCAL_MACHINE, "SYSTEM\\ControlSet001\\Services");
 //    regor.setCaching(true);
 //    Key _key = regor.openKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\debis");
@@ -2349,13 +2368,17 @@ final public class Regor
           else if(lineFound && line.trim().length() > 0)
           {
             int regIndex = line.indexOf("\tREG_");
+            int adding = 5;
             if(regIndex == -1)
+            {
             	regIndex = line.indexOf("    REG_");
+            	adding = 4;
+            }
             String foundValueName = line.substring(4, regIndex);
             if(foundValueName.equals(valueName))
             {
-              line = line.substring(regIndex + 1);
-              String items[] = line.split("\\s", 2);
+              line = line.substring(regIndex + adding);
+              String items[] = line.split("\\s+", 2); 
               if(appendType)
               {
                 strRet.append(items[0]);
@@ -2454,9 +2477,15 @@ final public class Regor
             {
               StringBuffer strRet = new StringBuffer();
               int regIndex = line.indexOf("\tREG_"); //always is \tREG
+              int adding = 5;
+              if(regIndex == -1)
+              {
+              	regIndex = line.indexOf("    REG_");
+              	adding = 4;
+              }
               String valueName = line.substring(4, regIndex);
-              line = line.substring(regIndex + 1);
-              String items[] = line.split("\\s",2); //last 2 tokens
+              line = line.substring(regIndex + adding);
+              String items[] = line.split("\\s+",2); //last 2 tokens
               //[0] = type
               //[1] = entry
 /*              if(items[0].equals("REG_MULTI_SZ"))
