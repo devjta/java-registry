@@ -4,6 +4,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.StringTokenizer;
 import java.io.File;
 import java.io.BufferedReader;
 import java.io.FileInputStream;
@@ -11,6 +12,7 @@ import java.io.InputStreamReader;
 import java.io.BufferedWriter;
 import java.io.OutputStreamWriter;
 import java.io.FileOutputStream;
+
 
 /********************************************************************************************************************************
  *
@@ -54,14 +56,15 @@ import java.io.FileOutputStream;
  *  					looking after reg.exe. I also found some parsing errors and fixed them..  
  * @version 4.4 Release 17.05.2010 After a user told me, he has problems reading out binary entries, i discovered several bugs with vista and win7. It seems to be
  * 						that the output from reg.exe has been changed. I just tested with XP and never with vista/win7, but now i made tests with win7 
- * 						and everything seems to be ok - now ;)                
+ * 						and everything seems to be ok - now ;)
+ * @version 4.5 Release 03.04.2012 Issue mentioned by fischl-thomas at 26. January 2012 - on XP, REG_SZ was not working anymore (because of the previous update to Win7)               
  *******************************************************************************************************************************/
 final public class Regor
 {
 	/**
-	 * version handle to difference between version - introduced with version 4.4 = 440
+	 * version handle to difference between version - introduced with version 4.5 = 450
 	 */
-	public static final long serialVersionUID = 440L;	
+	public static final long serialVersionUID = 450L;	
 	
   /**
    * the old handle to the HKEY_CLASSES_ROOT registry root node
@@ -2367,21 +2370,26 @@ final public class Regor
           }
           else if(lineFound && line.trim().length() > 0)
           {
-            int regIndex = line.indexOf("\tREG_");
-            int adding = 5;
-            if(regIndex == -1)
-            {
-            	regIndex = line.indexOf("    REG_");
-            	adding = 4;
+            StringTokenizer st = new StringTokenizer(line, " \t");
+            String[] items = {"","",""};
+            
+            int i = 0;
+            while(st.hasMoreTokens()){
+              items[i] += st.nextToken() + " ";
+              if(i<2){
+                i++;
+              }
             }
-            String foundValueName = line.substring(4, regIndex);
-            if(foundValueName.equals(valueName))
+            for(int j = 0; j<items.length;j++){
+              items[j] = items[j].trim(); 
+            }
+            
+            
+            if(items[0].equals(valueName))
             {
-              line = line.substring(regIndex + adding);
-              String items[] = line.split("\\s+", 2); 
               if(appendType)
               {
-                strRet.append(items[0]);
+                strRet.append(items[1]);
                 strRet.append(" ");
               }
               //[0] = type
@@ -2394,8 +2402,8 @@ final public class Regor
                 strRet.append(DWORD_KEY);
               else if (items[0].equals("REG_BINARY"))
                 strRet.append(BINARY_KEY);*/
-              strRet.append(items[1]);
-              if(items[0].equals("REG_MULTI_SZ") && strRet.toString().endsWith("\\0\\0"))
+              strRet.append(items[2]);
+              if(items[1].equals("REG_MULTI_SZ") && strRet.toString().endsWith("\\0\\0"))
                 strRet.setLength(strRet.length() - 4);
               break;
             }
